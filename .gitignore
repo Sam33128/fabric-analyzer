@@ -1,0 +1,16 @@
+venv/
+__pycache__/
+.env
+
+images/
+crops/
+outputs/
+
+runs/
+
+*.pyc
+*.pyo
+*.pyd
+
+.idea/
+.vscode/ 

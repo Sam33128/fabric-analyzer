@@ -1,0 +1,7 @@
+ultralytics
+google-genai
+pillow
+python-dotenv 
+fastapi
+uvicorn
+python-multipart 
