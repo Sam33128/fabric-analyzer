@@ -6,6 +6,8 @@ from PIL import Image
 from dotenv import load_dotenv
 from google import genai
 
+from analytics import track
+
 # -----------------------------
 # Load Environment Variables
 # -----------------------------
@@ -25,6 +27,16 @@ client = genai.Client(api_key=api_key)
 # YOLO Model
 # -----------------------------
 model = YOLO("yolo11n.pt")
+
+
+# -----------------------------
+# Safe Analytics
+# -----------------------------
+def safe_track(event, properties=None):
+    try:
+        track(event, properties)
+    except Exception:
+        pass
 
 
 # -----------------------------
@@ -86,23 +98,44 @@ def analyze_image(image_path):
     os.makedirs("outputs", exist_ok=True)
 
     # -----------------------------
-    # Validate Input
+    # Validate Image
     # -----------------------------
     validation = validate_clothing_image(image_path)
 
     if not validation.get("contains_clothing", False):
 
+        safe_track(
+            "fabric_validation_failed",
+            {
+                "reason": validation.get(
+                    "reason",
+                    "Unknown"
+                )
+            }
+        )
+
         return {
             "success": False,
             "message": "Please upload an image containing clothing garments.",
-            "reason": validation.get("reason", "No clothing detected")
+            "reason": validation.get(
+                "reason",
+                "No clothing detected"
+            )
         }
+
+    safe_track(
+        "fabric_validation_passed"
+    )
 
     print("Validation Passed")
 
     # -----------------------------
     # YOLO Detection
     # -----------------------------
+    safe_track(
+        "fabric_yolo_started"
+    )
+
     print("Running YOLO...")
 
     results = model(image_path)
@@ -122,12 +155,21 @@ def analyze_image(image_path):
 
             cls = int(box.cls[0])
 
-            # COCO Class 0 = Person
             if cls == 0:
 
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                x1, y1, x2, y2 = map(
+                    int,
+                    box.xyxy[0]
+                )
 
-                crop = img.crop((x1, y1, x2, y2))
+                crop = img.crop(
+                    (
+                        x1,
+                        y1,
+                        x2,
+                        y2
+                    )
+                )
 
                 crop_path = "crops/person_crop.jpg"
 
@@ -135,21 +177,37 @@ def analyze_image(image_path):
 
                 print("Person cropped")
 
+                safe_track(
+                    "fabric_person_detected"
+                )
+
                 break
 
+        if crop_path:
+            break
+
     # -----------------------------
-    # If no person found,
-    # analyze entire image
+    # No Person
     # -----------------------------
     if crop_path is None:
 
         crop_path = image_path
 
-        print("No person detected. Using full image.")
+        print(
+            "No person detected. Using full image."
+        )
+
+        safe_track(
+            "fabric_full_image_used"
+        )
 
     # -----------------------------
-    # Gemini Analysis
+    # Gemini
     # -----------------------------
+    safe_track(
+        "fabric_gemini_started"
+    )
+
     crop_img = Image.open(crop_path)
 
     prompt = """
@@ -187,7 +245,10 @@ def analyze_image(image_path):
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[crop_img, prompt]
+        contents=[
+            crop_img,
+            prompt
+        ]
     )
 
     clean_json = (
@@ -198,6 +259,16 @@ def analyze_image(image_path):
     )
 
     parsed = json.loads(clean_json)
+
+    safe_track(
+        "fabric_gemini_completed",
+        {
+            "garments": parsed.get(
+                "total_garments",
+                0
+            )
+        }
+    )
 
     with open(
         "outputs/result.json",

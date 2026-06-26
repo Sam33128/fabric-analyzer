@@ -1,0 +1,10 @@
+venv
+.git
+__pycache__
+
+images
+outputs
+crops
+runs
+
+.env 
